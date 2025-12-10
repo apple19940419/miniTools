@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>QR Code 解碼工具</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 800px;
+      margin: 32px auto;
+      padding: 0 16px;
+      line-height: 1.6;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    .hint {
+      text-align: center;
+      color: #666;
+      margin-bottom: 24px;
+    }
+    #dropZone {
+      border: 2px dashed #999;
+      border-radius: 8px;
+      padding: 24px;
+      text-align: center;
+      color: #555;
+      margin-bottom: 16px;
+      cursor: pointer;
+    }
+    #dropZone.dragover {
+      border-color: #0078d7;
+      background: #f0f8ff;
+    }
+    #fileInput {
+      margin-bottom: 16px;
+    }
+    #preview {
+      max-width: 100%;
+      max-height: 300px;
+      display: none;
+      margin: 8px 0 16px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+    }
+    #resultBox {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px 16px;
+      background: #fafafa;
+      margin-top: 8px;
+      word-break: break-all;
+    }
+    #status {
+      color: #666;
+      margin-top: 4px;
+      font-size: 0.9rem;
+    }
+    #openBtn {
+      margin-top: 12px;
+      padding: 8px 16px;
+      border-radius: 4px;
+      border: none;
+      background: #0078d7;
+      color: white;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    #openBtn:hover {
+      background: #005fa3;
+    }
+  </style>
+</head>
+<body>
+  <h1>QR Code 解碼工具</h1>
+  <div class="hint">
+    可 <b>Ctrl+V 貼上</b>、<b>拖曳圖片</b> 或 <b>選擇檔案</b> 上傳 QRCode 圖片
+  </div>
+
+  <!-- 檔案選擇 -->
+  <input type="file" id="fileInput" accept="image/*" />
+
+  <!-- 拖曳 / 貼上區域 -->
+  <div id="dropZone">
+    在這裡 <b>貼上 (Ctrl+V)</b> 或 <b>拖曳 QRCode 圖片</b><br />
+    （也可以上面選擇圖片檔）
+  </div>
+
+  <!-- 圖片預覽 -->
+  <img id="preview" alt="QRCode preview" />
+
+  <!-- 解碼結果 -->
+  <div id="resultBox">
+    <strong>解碼結果：</strong>
+    <div id="resultText">尚未解碼任何內容</div>
+    <div id="status"></div>
+    <button id="openBtn" style="display: none;">在新分頁開啟</button>
+  </div>
+
+  <!-- 隱藏的 canvas，用來讀取圖片像素 -->
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <script>
+    // 取得 DOM 元素
+    const fileInput = document.getElementById("fileInput");
+    const dropZone = document.getElementById("dropZone");
+    const preview = document.getElementById("preview");
+    const canvas = document.getElementById("canvas");
+    const resultText = document.getElementById("resultText");
+    const statusText = document.getElementById("status");
+    const openBtn = document.getElementById("openBtn");
+
+    const ctx = canvas.getContext("2d");
+
+    // 顯示訊息（狀態列）
+    function setStatus(msg) {
+      statusText.textContent = msg || "";
+    }
+
+    // 顯示解碼結果
+    function showResult(text) {
+      if (!text) {
+        resultText.textContent = "無法從圖片中辨識出 QRCode。";
+        openBtn.style.display = "none";
+        return;
+      }
+
+      resultText.textContent = text;
+
+      // 判斷是否為網址（http 或 https 開頭）
+      const trimmed = text.trim();
+      const isUrl = /^https?:\/\/.+/i.test(trimmed);
+      if (isUrl) {
+        openBtn.style.display = "inline-block";
+        openBtn.onclick = () => window.open(trimmed, "_blank");
+      } else {
+        openBtn.style.display = "none";
+      }
+    }
+
+    // 解碼圖片（核心流程）
+    function decodeImageFromImgElement(img) {
+      if (!img.naturalWidth || !img.naturalHeight) {
+        showResult("");
+        setStatus("圖片載入失敗。");
+        return;
+      }
+
+      // 調整 canvas 大小為圖片大小
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+
+      // 將圖片畫到 canvas
+      ctx.drawImage(img, 0, 0);
+
+      // 取得像素資料
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      // 使用 jsQR 解碼
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+      if (code && code.data) {
+        showResult(code.data);
+        setStatus("解碼成功！");
+      } else {
+        showResult("");
+        setStatus("解碼失敗，請確認圖片中有清楚的 QRCode。");
+      }
+    }
+
+    // 處理選擇或貼上的圖片檔
+    function handleImageFile(file) {
+      if (!file || !file.type.startsWith("image/")) {
+        setStatus("請選擇圖片檔。");
+        return;
+      }
+
+      setStatus("載入圖片中...");
+      const url = URL.createObjectURL(file);
+      preview.src = url;
+      preview.style.display = "block";
+
+      preview.onload = () => {
+        decodeImageFromImgElement(preview);
+        // 釋放暫時 URL
+        URL.revokeObjectURL(url);
+      };
+
+      preview.onerror = () => {
+        setStatus("圖片載入失敗。");
+        showResult("");
+        preview.style.display = "none";
+        URL.revokeObjectURL(url);
+      };
+    }
+
+    // 檔案 input 變更事件
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      handleImageFile(file);
+    });
+
+    // 拖曳進入/停留效果
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.classList.add("dragover");
+    });
+
+    dropZone.addEventListener("dragleave", () => {
+      dropZone.classList.remove("dragover");
+    });
+
+    // 放開拖曳檔案
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      const file = e.dataTransfer.files[0];
+      handleImageFile(file);
+    });
+
+    // 點擊 dropZone 也可以呼叫檔案選擇
+    dropZone.addEventListener("click", () => {
+      fileInput.click();
+    });
+
+    // 處理貼上事件（Ctrl+V）
+    document.addEventListener("paste", (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          const blob = item.getAsFile();
+          if (blob) {
+            handleImageFile(blob);
+          }
+          e.preventDefault();
+          break;
+        }
+      }
+    });
+  </script>
+</body>
+</html>
